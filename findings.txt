@@ -1,0 +1,6 @@
+On 10,000 simulations
+
+v0.1: Play Chop!
+scored 1.2734 with a max_score of 11
+v0.2: Save 5s... Play Chop!
+scored 1.4358 with a max_score of 12
