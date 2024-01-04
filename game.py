@@ -248,10 +248,13 @@ class Player():
         self.game.give_clue(self.id, to, color, rank)
 
     # Returns the list of cards that woud be touched by a certain clue.
-    def touched_cards(self, color: Color | None = None, rank: Rank | None = None)-> List['Card']:
+    def touched_cards(self, color: Color | None = None, rank: Rank | None = None)-> List[Tuple['Card',int]]:
         assert not (color is None and rank is None)
-        return list(filter(lambda c: c.rank == rank or c.color == color, self.cards))
-        # return [(c, idx) for c in ]
+        touched_cards: List[Tuple['Card',int]] = []
+        for i, c in enumerate(self.cards):
+            if c.rank == rank or c.color == color:
+                touched_cards.append((c, i))
+        return touched_cards
         
     # Returns True if a touch is good i.e. it touches cards that are only eventually playable, cards that are not already clued, identical cards, cards that you may have and already clued.
     # This should not be called when evaluating saves.
@@ -261,14 +264,24 @@ class Player():
     #    stuff that can be handled with sarcastic discard.
     #TODO this shouldn't only look at possibilites since that is mathematic, this should really look at probables i.e. marking a 3 when you were given a 3-save is probably ok.
     # important! slots is passed from the caller
-    def is_good_touch(self, touched_cards: List['Card'], slots: List['Slot'])-> bool:
-        #Check to make sure cards are eventually playable, almost certainly not a good touch
-        for c in touched_cards:
+    def is_good_touch(self, touched_cards: List[Tuple['Card',int]], slots: List['Slot'])-> bool:
+        # Check to make sure cards are eventually playable, almost certainly not a good touch
+        for c, _ in touched_cards:
             if c.color_rank not in self.game.eventually_playable:
                 return False
-        #Identical cards, almost certainly not a good touch
-        if len(set(touched_cards)) != len(touched_cards):
+
+        # Touch contains duplicate cards, almost certainly not a good touch
+        if len(set([c.color_rank for c, _ in touched_cards])) != len([c.color_rank for c, _ in touched_cards]):
             return False
+        
+        # Count of newly touched cards, if it's 0 almost certainly a bad touch. This forbids tempo clues
+        new_touches = 0
+        for c, idx in touched_cards:
+            if not self.slots[idx].clued:
+                new_touches += 1
+        if new_touches == 0:
+            return False
+        
         # It can be a good touch, but it's probably not, check to see if you haven't been marked with the card you're trying to touch
         for s in slots:
             if len(s.possibilites) <= 5:
@@ -336,7 +349,7 @@ class Player():
                 rank = one_aways[0][1]
                 rank_touches = n.touched_cards(rank=rank)
                 clues = [(color_touches, color, True), (rank_touches, rank, False)]
-                if len(color_touches) >= len(rank_touches):
+                if (big_touches and len(color_touches) < len(rank_touches)) or (not big_touches and len(color_touches) >= len(rank_touches)):
                     clues = clues[::-1]
                 for c in clues:
                     touches, e, is_color = c
@@ -548,16 +561,17 @@ class Simulator():
 
     def _run(self):
         debug = True if self.runs < 10 else False
+        increments = 10
         for i in range(self.runs):
             if debug:
                 print()
                 print('new_game')
-            if i % (self.runs/100) == 0 and i != 0 and not debug:
+            if i % (self.runs/increments) == 0 and i != 0 and not debug:
                 print(f'{int(i/self.runs*100)}%')
             deck = None
-            # deck = Deck.normal_deck()
-            # deck._cards[-5] = Card(Color.RED, Rank.FIVE) #type: ignore
-            # deck._cards[-6] = Card(Color.BLU, Rank.FIVE) #type: ignore
+            deck = Deck.normal_deck()
+            deck._cards[-5] = Card(Color.BLU, Rank.ONE) #type: ignore
+            deck._cards[-6] = Card(Color.BLU, Rank.ONE) #type: ignore
             g = Game(sim=self, deck=deck, debug=debug)
             g.next_player()
             del g
@@ -574,5 +588,17 @@ class Simulator():
         self.results[result] += 1
 
 
-Simulator(10000)
+import sys
+if len(sys.argv) < 2:
+    big_touches = True
+    # Simulator(10000)
+    big_touches = False
+    Simulator(10000)
+else:
+    big_touches = True
+    Simulator(int(sys.argv[1]))
+    big_touches = False
+    Simulator(int(sys.argv[1]))
+# Simulator(10000)
+# Simulator(1)
 
