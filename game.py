@@ -307,22 +307,31 @@ class Player():
     # TODO this shouldn't only look at possibilites since that is mathematic, this should really look at probables i.e. marking a 3 when you were given a 3-save is probably ok.
     # important! slots is passed from the caller
     def is_good_touch(self, touched_cards: List[Tuple['Card', int]], slots: List['Slot']) -> bool:
+        caller: Player = slots[0].player
         # Check to make sure cards are eventually playable, almost certainly not a good touch
         for c, _ in touched_cards:
             if c.color_rank not in self.game.eventually_playable:
                 return False
 
+        touched_set = set([c.color_rank for c, _ in touched_cards])
         # Touch contains duplicate cards, almost certainly not a good touch
-        if len(set([c.color_rank for c, _ in touched_cards])) != len([c.color_rank for c, _ in touched_cards]):
+        if len(touched_set) != len([c.color_rank for c, _ in touched_cards]):
             return False
 
         # Count of newly touched cards, if it's 0 almost certainly a bad touch. This forbids tempo clues
-        new_touches = 0
+        new_touches: List[Card] = []
         for c, idx in touched_cards:
             if not self.slots[idx].clued:
-                new_touches += 1
-        if new_touches == 0:
+                new_touches.append(self.slots[idx].card)
+        if len(new_touches) == 0:
             return False
+
+        # It's not a good touch if a neighbor has already had this card clued
+        for p in caller.neighbors:
+            if p.id != self.id:
+                for s in p.slots:
+                    if len(s.possibilites) <= 5 and s.card.color_rank in touched_set:
+                        return False
 
         # It can be a good touch, but it's probably not, check to see if you haven't been marked with the card you're trying to touch
         for s in slots:
@@ -654,9 +663,9 @@ class Simulator():
             if i % (self.runs/increments) == 0 and i != 0 and not debug:
                 print(f'{int(i/self.runs*100)}%')
             deck = None
-            deck = Deck.normal_deck()
-            deck._cards[-5] = Card(Color.BLU, Rank.ONE)  # type: ignore
-            deck._cards[-6] = Card(Color.BLU, Rank.ONE)  # type: ignore
+            # deck = Deck.normal_deck()
+            # deck._cards[-5] = Card(Color.BLU, Rank.ONE)  # type: ignore
+            # deck._cards[-6] = Card(Color.BLU, Rank.ONE)  # type: ignore
             g = Game(sim=self, deck=deck, debug=debug)
             g.next_player()
             del g

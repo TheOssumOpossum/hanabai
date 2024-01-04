@@ -29,3 +29,8 @@ simulations:10000 average_score:5.4298 max_score:20 strikeout_rate:0.9894 bottom
 
 v0.6.1: prefer touching fewer cards. score has gone down a little bit but strikeout rate is down significantly, obviously the players are much more patient but seem to not be playing cards when needed
 simulations:10000 average_score:9.0856 max_score:21 strikeout_rate:0.8475 bottomout_rate:0.1525 victory_rate:0.0
+
+v0.7.0: Updated GTP, don't clue cards that have already been clued in other hands, prefer touching more cards. It seems like there is some sort of bug, I saw a player cluing Red after the player had received a 1 clue. However, it worked out because the player proceeded to play both the red 1 (initially marked as 1) and the red 2 (subsequently marked as 2 before the r1 played). Doesn't seem to have significant improvment.
+
+v0.7.1: prefer touching fewer cards. Strikeout rate decreased dramatically with an increase in average score. Best version yet!
+simulations:10000 average_score:9.7478 max_score:21 strikeout_rate:0.809 bottomout_rate:0.191 victory_rate:0.0
