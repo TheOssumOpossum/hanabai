@@ -336,7 +336,7 @@ class Player():
                 rank = one_aways[0][1]
                 rank_touches = n.touched_cards(rank=rank)
                 clues = [(color_touches, color, True), (rank_touches, rank, False)]
-                if len(color_touches) < len(rank_touches):
+                if len(color_touches) >= len(rank_touches):
                     clues = clues[::-1]
                 for c in clues:
                     touches, e, is_color = c
