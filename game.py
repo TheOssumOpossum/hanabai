@@ -290,6 +290,11 @@ class Player():
                     return False
         return True
     
+    def clues_left_to_right(self, touched_cards: List[Tuple['Card', int]]) -> bool:
+        c, _ = touched_cards[-1]
+        return c.color_rank in self.game.one_away
+
+    
     @property
     def neighbors(self):
         return self.game.get_neighbors(self.id)
@@ -353,13 +358,13 @@ class Player():
                     clues = clues[::-1]
                 for c in clues:
                     touches, e, is_color = c
-                    if n.is_good_touch(touches, self.slots):
+                    if n.is_good_touch(touches, self.slots) and n.clues_left_to_right(touches):
                         self.give_clue(n.id, color=e if is_color else None, rank=e if not is_color else None) #type: ignore
                         return
         
-        for i, s in enumerate(self.slots):
+        for i, s in enumerate(self.slots[::-1]):
             if len(s.possibilites) <= 5 and set(s.possibilites.keys()) & self.game.one_away:
-                self.play_card(i)
+                self.play_card(len(self.cards)-i-1)
                 return
         
         chop = self.chop if self.chop != -1 else len(self.cards)-1
@@ -591,7 +596,7 @@ class Simulator():
 import sys
 if len(sys.argv) < 2:
     big_touches = True
-    # Simulator(10000)
+    Simulator(10000)
     big_touches = False
     Simulator(10000)
 else:
@@ -599,6 +604,4 @@ else:
     Simulator(int(sys.argv[1]))
     big_touches = False
     Simulator(int(sys.argv[1]))
-# Simulator(10000)
-# Simulator(1)
 

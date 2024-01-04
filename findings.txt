@@ -15,5 +15,11 @@ simulations:10000 average_score:8.4601 max_score:19 strikeout_rate:0.8941 bottom
 v0.4.0: Updated GTP from 0.3, clues that touch 0 new cards are no good, prefer touching more cards. This does slightly better than before, note the higher max score.
 simulations:10000 average_score:4.9972 max_score:20 strikeout_rate:0.9977 bottomout_rate:0.0023 victory_rate:0.0
 
-v0.4.1: prefer touching fewer cards, this is an improvement over 0.3.0 but significantly far behind 0.3.1 counterpart. The aggressive discarding of spamming clues lead to fewer bombs and a lower strikeout rate, but again the max score is higher.
+v0.4.1: prefer touching fewer cards, this is an improvement over 0.3.0 but significantly far behind 0.3.1 counterpart. The aggressive discarding since clues were spammed lead to fewer bombs and a lower strikeout rate, but at least the max score is higher.
 simulations:10000 average_score:5.9328 max_score:20 strikeout_rate:0.9878 bottomout_rate:0.0122 victory_rate:0.0
+
+v0.5.0: Added a check for 'clues-left-to-right', prefer touching more cards. Significant improvment to previous version, highest max score!
+simulations:10000 average_score:8.6714 max_score:22 strikeout_rate:0.9696 bottomout_rate:0.0304 victory_rate:0.0
+
+v0.5.1: prefer touching fewer cards. Best version yet! This still outperforms the the high touch version since players play left-to-right regardless of their most recent clue.
+simulations:10000 average_score:9.3841 max_score:21 strikeout_rate:0.9344 bottomout_rate:0.0656 victory_rate:0.0
