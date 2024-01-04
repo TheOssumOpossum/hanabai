@@ -26,6 +26,15 @@ class Rank(IntEnum):
     FOUR = 4
     FIVE = 5
 
+class Result(IntEnum):
+    MAX_TURNS = 0
+    STRIKE_OUT = 1
+    BOTTOM_OUT = 2
+    VICTORY = 3
+    NO_PLAYABLES = 4
+
+ColorRank = Tuple[Color, Rank]
+
 
 class Game():
     def __init__(self, player_count: int = 4, sim: 'Simulator | None' = None, deck: 'Deck | None' = None, debug: bool = False):
@@ -51,12 +60,32 @@ class Game():
             for c in p.cards:
                 self.report_draw(p.id, c)
 
+    @property #TODO this probably shoulldn't have to be recalculated
+    def eventually_playable(self)-> set[Tuple[Color, Rank]]:
+        return self.board.eventually_playable
+    
+    @property 
+    def one_away(self)-> set[Tuple[Color, Rank]]:
+        s: set[Tuple[Color, Rank]] = set()
+        for _, stack in self.board.stacks.items():
+            s |= stack.one_away
+        return s
+    
+    @property 
+    def can_discard(self)-> bool:
+        return self.clue_tokens != 8
+    
+    @property 
+    def can_clue(self)-> bool:
+        return self.clue_tokens != 0
+
     def play_card(self, card: 'Card'):
         if self.debug:
                 print(f'{self.player_turn} plays {card}', end=' ')
         self.process_card_removal(card)
         if self.board.stacks[card.color].play_card(card):
             self.score += 1
+            self.board.eventually_playable.remove(card.color_rank)
             if self.debug:
                 print('+1')
         else:
@@ -66,17 +95,18 @@ class Game():
         if self.remaining_strikes == 0:  # GAME_OVER
             if self.debug:
                 print('GAME OVER, 3 STRIKES')
-            self.game_over()
+            self.game_over(Result.STRIKE_OUT)
             return
         if self.score == 25:  # GAME_OVER
             if self.debug:
                 print('YOU WIN')
-            self.game_over()
+            self.game_over(Result.VICTORY)
             return
         self.next_player()
 
     def discard_card(self, card: 'Card'):
-        print(f'{self.player_turn} discards {card} tokens:{self.clue_tokens}')
+        if self.debug:
+            print(f'{self.player_turn} discards {card} tokens:{self.clue_tokens}')
         self.clue_tokens += 1
         self.process_card_removal(card)
         self.next_player()
@@ -103,7 +133,7 @@ class Game():
         self.clue_tokens -= 1
         if self.debug:
             print(
-                f'{from_} clues {to} with {color if color else rank} \ttokens:{self.clue_tokens}')
+                f'{from_} clues {to} with {color.name if color else rank} \ttokens:{self.clue_tokens}')
         for p in self.players:
             p.receive_clue(from_, to, color, rank)
         self.next_player()
@@ -111,20 +141,21 @@ class Game():
     def next_player(self):
         self.turns += 1
         if self.turns == MAX_TURNS:
-            self.game_over()
+            self.game_over(Result.MAX_TURNS)
             return
         if self.player_turn == self.last_player:  # GAME_OVER
-            print('GAME OVER, NO MORE CARDS')
-            self.game_over()
+            if self.debug:
+                print('GAME OVER, NO MORE CARDS')
+            self.game_over(Result.BOTTOM_OUT)
             return
         self.player_turn += 1
         self.player_turn %= len(self.players)
         assert 0 <= self.player_turn < len(self.players)
         self.players[self.player_turn].prompt()
 
-    def game_over(self):
+    def game_over(self, result: Result):
         if self.sim:
-            self.sim.report(self.score)
+            self.sim.report(self.score, result)
         else:
             print(f'Final Score:{self.score}')
 
@@ -216,22 +247,63 @@ class Player():
         assert not (color is None and rank is None)
         self.game.give_clue(self.id, to, color, rank)
 
+    # Returns the list of cards that woud be touched by a certain clue.
+    def touched_cards(self, color: Color | None = None, rank: Rank | None = None)-> List['Card']:
+        assert not (color is None and rank is None)
+        return list(filter(lambda c: c.rank == rank or c.color == color, self.cards))
+        # return [(c, idx) for c in ]
+        
+    # Returns True if a touch is good i.e. it touches cards that are only eventually playable, cards that are not already clued, identical cards, cards that you may have and already clued.
+    # This should not be called when evaluating saves.
+    # Exceptions: 
+    #    left-to-right play meaning the rest will be trash i.e marking 5y (play) 1y 2y (trash)
+    #    marking kt, (like with trash bluff)
+    #    stuff that can be handled with sarcastic discard.
+    #TODO this shouldn't only look at possibilites since that is mathematic, this should really look at probables i.e. marking a 3 when you were given a 3-save is probably ok.
+    # important! slots is passed from the caller
+    def is_good_touch(self, touched_cards: List['Card'], slots: List['Slot'])-> bool:
+        #Check to make sure cards are eventually playable, almost certainly not a good touch
+        for c in touched_cards:
+            if c.color_rank not in self.game.eventually_playable:
+                return False
+        #Identical cards, almost certainly not a good touch
+        if len(set(touched_cards)) != len(touched_cards):
+            return False
+        # It can be a good touch, but it's probably not, check to see if you haven't been marked with the card you're trying to touch
+        for s in slots:
+            if len(s.possibilites) <= 5:
+                possible = set(s.possibilites.keys())
+                if possible & set(touched_cards):
+                    return False
+        return True
+    
+    @property
+    def neighbors(self):
+        return self.game.get_neighbors(self.id)
+    
+    @property
+    def card_types(self) -> set[ColorRank]:
+        return set([(c.color, c.rank) for c in self.cards])
+
     # Perform a play, discard or clue
     def prompt(self):
-        neighbors = self.game.get_neighbors(self.id)
+        neighbors = self.neighbors
         dist = len(neighbors)+1
-        # missing: check if can clue, check if should clue
+        # missing: check if clue tokens are available, check if should clue (i.e. dont waste tokens, dont clue 1s on your neighbor if that means they won't be able to clue 1s on their neighbor's 1 chop which is unrelated to your own clue)
         # 1. respond to possible bluff
         # missing: <stubbed>
-        # 2. Look for save
+        # 2. Look for save, starting backwards because sometimes double or even triple saves are necessary
         for n in neighbors[::-1]:
+            if not self.game.can_clue:
+                break
             dist -= 1
             def look_for_save(neighor: Player) -> Tuple[int, int | None]:
                 saves_needed: set[int] = set()
                 save_slot: int | None = None
                 if neighor.has_play:
                     return len(saves_needed), save_slot
-                # missing: if n-1 can clue neighbor
+                # missing: check if n-1 can clue play to neighbor... if n-1 is you, forced clue
+                # kind of complicated because ideally there are no bad touches, but sometimes it is more efficient to make a bad touch play-clue than a double/triple-save
                 for idx, c in enumerate(neighor.cards):
                     if idx < neighor.chop:
                         continue
@@ -248,8 +320,43 @@ class Player():
                 # give number save clue to first save_slot
                 self.give_clue(n.id, rank=n.cards[save_slot].rank)
                 return
+        
+        #look for play clue
+        for n in neighbors:
+            if not self.game.can_clue:
+                break
+            one_aways = list(n.card_types & self.game.one_away)
+            if one_aways:
+                #prefer color if even, otherwise probably go for most play clues and then most touches.
+                #TODO i don't like referencing color of the Color/Rank with 0 idx
+                #TODO we're only looking at the first one_away
+                #TODO this doesnt yet observe left-to-right principle
+                color = one_aways[0][0]
+                color_touches = n.touched_cards(color=color)
+                rank = one_aways[0][1]
+                rank_touches = n.touched_cards(rank=rank)
+                clues = [(color_touches, color, True), (rank_touches, rank, False)]
+                if len(color_touches) < len(rank_touches):
+                    clues = clues[::-1]
+                for c in clues:
+                    touches, e, is_color = c
+                    if n.is_good_touch(touches, self.slots):
+                        self.give_clue(n.id, color=e if is_color else None, rank=e if not is_color else None) #type: ignore
+                        return
+        
+        for i, s in enumerate(self.slots):
+            if len(s.possibilites) <= 5 and set(s.possibilites.keys()) & self.game.one_away:
+                self.play_card(i)
+                return
+        
+        chop = self.chop if self.chop != -1 else len(self.cards)-1
+        if self.game.can_discard:
+            self.discard(chop)
+            return
+        self.play_card(chop)
 
-        self.play_card(self.chop if self.chop != -1 else 0)
+
+        # self.play_card(self.chop if self.chop != -1 else 0)
 
 
 class Slot():
@@ -257,6 +364,7 @@ class Slot():
         self.player = player
         self.card = card
         cards = Deck.normal_deck()._cards  # type: ignore
+        # This isn't a simple set because we want to keep track of the number of cards that have been seen of each type. So if you see a r2, there is 1 possibility of your slot being r1 and if you see two r2s, there is 0 possiblity of your slot being r2. It's not so easy to keep track of individual perspectives without this method.
         self.possibilites: dict[Tuple[Color, Rank],
                                 int] = collections.defaultdict(int)
         for c in cards:
@@ -277,9 +385,9 @@ class Slot():
     def decrement_possibility(self, card: 'Card'):
         if card.color_rank not in self.possibilites:
             return
-        if self.possibilites[card.color_rank] <= 0:
-            print(self.possibilites[card.color_rank], card, self.player.id)
-            assert self.possibilites[card.color_rank] > 0
+        # if self.possibilites[card.color_rank] <= 0:
+        #     print(self.possibilites[card.color_rank], card, self.player.id)
+        #     assert self.possibilites[card.color_rank] > 0
         self.possibilites[card.color_rank] -= 1
         if self.possibilites[card.color_rank] == 0:
             self.exhaust_possibility(card.color_rank)
@@ -338,6 +446,7 @@ class Board():
         self.stacks: Dict[Color, Stack] = Board._normal_board()
         self.remaining: Dict[Tuple[Color, Rank],
                              int] = collections.defaultdict(int)
+        self.eventually_playable = set([(c.color, c.rank) for c in Deck.normal_deck()._cards]) # type: ignore
 
     @staticmethod
     def _normal_board() -> Dict[Color, 'Stack']:
@@ -359,6 +468,21 @@ class Stack():
             self.rank = Rank(self.rank + 1)
             return True
         return False
+    
+    # @property
+    # def eventually_playable(self) -> set[Tuple[Color, Rank]]:
+    #     s: set[Tuple[Color, Rank]] = set()
+    #     for r in Rank:
+    #         if r > self.rank:
+    #             s.add((self.color, r))
+    #     return s
+    
+    @property
+    def one_away(self) -> set[Tuple[Color, Rank]]:
+        s: set[Tuple[Color, Rank]] = set()
+        if self.rank != 5:
+            s.add((self.color, Rank(self.rank + 1)))
+        return s
 
 
 class Deck():
@@ -419,6 +543,7 @@ class Simulator():
     def __init__(self, runs: int = 1):
         self.scores: List[int] = []
         self.runs = runs
+        self.results: dict[Result, int] = collections.defaultdict(int)
         self._run()
 
     def _run(self):
@@ -436,11 +561,17 @@ class Simulator():
             g = Game(sim=self, deck=deck, debug=debug)
             g.next_player()
             del g
-        print(
-            f'simulations:{self.runs} average_score:{sum(self.scores)/len(self.scores)} max_score:{max(self.scores)}')
+        avg_score = sum(self.scores)/len(self.scores)
+        max_score = max(self.scores)
+        strikeout_rate = self.results[Result.STRIKE_OUT] / self.runs
+        victory_rate = self.results[Result.VICTORY] / self.runs
+        bottomout_rate = self.results[Result.BOTTOM_OUT] / self.runs
+        #TODO add statistics for no playables, which is technically a bottomout
+        print(f'simulations:{self.runs} average_score:{avg_score} max_score:{max_score} strikeout_rate:{strikeout_rate} bottomout_rate:{bottomout_rate} victory_rate:{victory_rate}')
 
-    def report(self, score: int):
+    def report(self, score: int, result: Result):
         self.scores.append(score)
+        self.results[result] += 1
 
 
 Simulator(10000)

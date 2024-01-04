@@ -1,6 +1,10 @@
 On 10,000 simulations
 
 v0.1: Play Chop!
-scored 1.2734 with a max_score of 11
-v0.2: Save 5s... Play Chop!
-scored 1.4358 with a max_score of 12
+average_score: 1.2734 max_score: 11
+v0.2: Save criticals... Play Chop!
+average_score: 1.4358 max_score: 12
+v0.3.0: Save criticals, if there is a player with a one-away clue then repetitively as long as it's a 'good touch', if there are no clues to give, play left-most clued card as long as it could be playable
+simulations:10000 average_score:4.9033 max_score:18 strikeout_rate:0.9894 bottomout_rate:0.0106 victory_rate:0.0
+v0.3.1: Same as 0.3 but prefer touching fewer cards.
+simulations:10000 average_score:8.4601 max_score:19 strikeout_rate:0.8941 bottomout_rate:0.1059 victory_rate:0.0
