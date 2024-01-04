@@ -1,6 +1,7 @@
+import sys
 import random
 import collections
-from enum import IntEnum, Enum, auto
+from enum import IntEnum, Enum, auto, Flag
 from typing import List, Dict, Tuple
 from copy import deepcopy
 
@@ -8,8 +9,9 @@ MAX_CLUE_TOKENS = 8
 MAX_STRIKES = 3
 MAX_TURNS = 100
 
-# from enum import Flag
 # class Color(Flag): #this would be cool when things get muddy but too complicated for now
+
+
 class Color(Enum):
     BLU = auto()
     RED = auto()
@@ -26,12 +28,23 @@ class Rank(IntEnum):
     FOUR = 4
     FIVE = 5
 
-class Result(IntEnum):
-    MAX_TURNS = 0
-    STRIKE_OUT = 1
-    BOTTOM_OUT = 2
-    VICTORY = 3
-    NO_PLAYABLES = 4
+
+class Result(Enum):
+    MAX_TURNS = auto()
+    STRIKE_OUT = auto()
+    BOTTOM_OUT = auto()
+    VICTORY = auto()
+    NO_PLAYABLES = auto()
+
+
+class ClueType(Flag):
+    NONE = auto()
+    SPLASH = auto()
+    SAVE = auto()
+    PLAY = auto()
+    TRASH = auto()
+    # ... finesse, gd, bluff etc.
+
 
 ColorRank = Tuple[Color, Rank]
 
@@ -41,7 +54,7 @@ class Game():
         self.deck = deck if deck is not None else Deck.normal_deck()
         self.board = Board()
         for c in self.deck._cards:  # type: ignore
-        # for c in Deck.normal_deck()._cards: # type: ignore
+            # for c in Deck.normal_deck()._cards: # type: ignore
             self.board.remaining[c.color, c.rank] += 1
         self.players: List[Player] = [
             Player(x, self) for x in range(player_count)]
@@ -60,28 +73,28 @@ class Game():
             for c in p.cards:
                 self.report_draw(p.id, c)
 
-    @property #TODO this probably shoulldn't have to be recalculated
-    def eventually_playable(self)-> set[Tuple[Color, Rank]]:
+    @property  # TODO this probably shoulldn't have to be recalculated
+    def eventually_playable(self) -> set[Tuple[Color, Rank]]:
         return self.board.eventually_playable
-    
-    @property 
-    def one_away(self)-> set[Tuple[Color, Rank]]:
+
+    @property
+    def one_away(self) -> set[Tuple[Color, Rank]]:
         s: set[Tuple[Color, Rank]] = set()
         for _, stack in self.board.stacks.items():
             s |= stack.one_away
         return s
-    
-    @property 
-    def can_discard(self)-> bool:
+
+    @property
+    def can_discard(self) -> bool:
         return self.clue_tokens != 8
-    
-    @property 
-    def can_clue(self)-> bool:
+
+    @property
+    def can_clue(self) -> bool:
         return self.clue_tokens != 0
 
     def play_card(self, card: 'Card'):
         if self.debug:
-                print(f'{self.player_turn} plays {card}', end=' ')
+            print(f'{self.player_turn} plays {card}', end=' ')
         self.process_card_removal(card)
         if self.board.stacks[card.color].play_card(card):
             self.score += 1
@@ -143,9 +156,14 @@ class Game():
         if self.turns == MAX_TURNS:
             self.game_over(Result.MAX_TURNS)
             return
-        if self.player_turn == self.last_player:  # GAME_OVER
+        # if len(self.players[self.player_turn].cards) != 4:
+        #     if self.debug:
+        #         print('GAME OVER, NO MORE CARDS1')
+        #     self.game_over(Result.BOTTOM_OUT)
+        #     return
+        if self.player_turn == self.last_player:
             if self.debug:
-                print('GAME OVER, NO MORE CARDS')
+                print('GAME OVER, NO MORE CARDS2')
             self.game_over(Result.BOTTOM_OUT)
             return
         self.player_turn += 1
@@ -172,7 +190,7 @@ class Player():
         self.has_play = False  # probably make that a property
         self.self_exhausts: List[Tuple[Color, Rank]] = []
         for _ in range(hand_size):
-            self.draw_card(game_start = True)
+            self.draw_card(game_start=True)
 
     def __str__(self):
         return f'id:{self.id}, cards:{self.cards} slots:{self.slots}'
@@ -193,7 +211,7 @@ class Player():
             self.game.report_draw(self.id, card, game_start=game_start)
             self.cards.append(card)
             self.slots.append(Slot(self, card))
-        else:
+        elif self.game.last_player is None:
             self.game.last_player = self.id
 
     def play_card(self, idx: int):
@@ -230,41 +248,65 @@ class Player():
 
     def receive_clue(self, from_: int, to: int, color: Color | None = None, rank: Rank | None = None):
         # missing: analyze finesse/bluff
-        if from_ == self.id: #tehcnicaly this will analyze self-bluff self-finesse
+        if from_ == self.id:  # tehcnicaly this will analyze self-bluff self-finesse
             return
         if to == self.id:
+            clue_type = ClueType.NONE
+            clue_types: List[ClueType] = []
             for idx, s in enumerate(self.slots):
-                s.receive_clue(idx, color, rank)
+                new_clue_type = s.receive_clue(
+                    idx, color, rank, clue_type=clue_type)
+                clue_types.append(new_clue_type)
+                clue_type |= new_clue_type
+            if clue_type & ClueType.SAVE:
+                for i in range(len(clue_types)):
+                    ct = clue_types[i]
+                    if ct != ClueType.NONE and ct != ClueType.SAVE:
+                        clue_types[i] = ClueType.SPLASH
+                    elif ct == ClueType.SAVE:
+                        self.slots[i].save = True
+            elif clue_type & ClueType.PLAY:
+                for idx, ct in enumerate(clue_types):
+                    if ct == ClueType.PLAY:
+                        self.slots[idx].play = True
+                        self.has_play = True
+            else:
+                #TODO if you get a neg clue that reveals the identity of a card in your hand you should have a play.
+                pass
+
+                    
+
 
     def process_self_exhausts(self):
         while len(self.self_exhausts):
             copied_exhausts = deepcopy(self.self_exhausts)
             self.self_exhausts = []
-            for cr in copied_exhausts: #deep copy is needed because on rare occasions you might have a recursive loop here
-                self.exhaust_possibility(card_from_color_rank(cr), from_self = True)
+            for cr in copied_exhausts:  # deep copy is needed because on rare occasions you might have a recursive loop here
+                self.exhaust_possibility(
+                    card_from_color_rank(cr), from_self=True)
 
     def give_clue(self, to: int, color: Color | None = None, rank: Rank | None = None):
         assert not (color is None and rank is None)
         self.game.give_clue(self.id, to, color, rank)
 
     # Returns the list of cards that woud be touched by a certain clue.
-    def touched_cards(self, color: Color | None = None, rank: Rank | None = None)-> List[Tuple['Card',int]]:
+    def touched_cards(self, color: Color | None = None, rank: Rank | None = None) -> List[Tuple['Card', int]]:
         assert not (color is None and rank is None)
-        touched_cards: List[Tuple['Card',int]] = []
+        touched_cards: List[Tuple['Card', int]] = []
         for i, c in enumerate(self.cards):
             if c.rank == rank or c.color == color:
                 touched_cards.append((c, i))
         return touched_cards
-        
+
     # Returns True if a touch is good i.e. it touches cards that are only eventually playable, cards that are not already clued, identical cards, cards that you may have and already clued.
     # This should not be called when evaluating saves.
-    # Exceptions: 
+    # Exceptions:
     #    left-to-right play meaning the rest will be trash i.e marking 5y (play) 1y 2y (trash)
     #    marking kt, (like with trash bluff)
     #    stuff that can be handled with sarcastic discard.
-    #TODO this shouldn't only look at possibilites since that is mathematic, this should really look at probables i.e. marking a 3 when you were given a 3-save is probably ok.
+    # TODO this shouldn't only look at possibilites since that is mathematic, this should really look at probables i.e. marking a 3 when you were given a 3-save is probably ok.
     # important! slots is passed from the caller
-    def is_good_touch(self, touched_cards: List[Tuple['Card',int]], slots: List['Slot'])-> bool:
+    def is_good_touch(self, touched_cards: List[Tuple['Card', int]], slots: List['Slot']) -> bool:
         # Check to make sure cards are eventually playable, almost certainly not a good touch
         for c, _ in touched_cards:
             if c.color_rank not in self.game.eventually_playable:
@@ -273,7 +315,7 @@ class Player():
         # Touch contains duplicate cards, almost certainly not a good touch
         if len(set([c.color_rank for c, _ in touched_cards])) != len([c.color_rank for c, _ in touched_cards]):
             return False
-        
+
         # Count of newly touched cards, if it's 0 almost certainly a bad touch. This forbids tempo clues
         new_touches = 0
         for c, idx in touched_cards:
@@ -281,7 +323,7 @@ class Player():
                 new_touches += 1
         if new_touches == 0:
             return False
-        
+
         # It can be a good touch, but it's probably not, check to see if you haven't been marked with the card you're trying to touch
         for s in slots:
             if len(s.possibilites) <= 5:
@@ -289,16 +331,15 @@ class Player():
                 if possible & set(touched_cards):
                     return False
         return True
-    
+
     def clues_left_to_right(self, touched_cards: List[Tuple['Card', int]]) -> bool:
         c, _ = touched_cards[-1]
         return c.color_rank in self.game.one_away
 
-    
     @property
     def neighbors(self):
         return self.game.get_neighbors(self.id)
-    
+
     @property
     def card_types(self) -> set[ColorRank]:
         return set([(c.color, c.rank) for c in self.cards])
@@ -315,6 +356,7 @@ class Player():
             if not self.game.can_clue:
                 break
             dist -= 1
+
             def look_for_save(neighor: Player) -> Tuple[int, int | None]:
                 saves_needed: set[int] = set()
                 save_slot: int | None = None
@@ -338,41 +380,51 @@ class Player():
                 # give number save clue to first save_slot
                 self.give_clue(n.id, rank=n.cards[save_slot].rank)
                 return
-        
-        #look for play clue
+
+        # look for play clue
         for n in neighbors:
             if not self.game.can_clue:
                 break
             one_aways = list(n.card_types & self.game.one_away)
             if one_aways:
-                #prefer color if even, otherwise probably go for most play clues and then most touches.
-                #TODO i don't like referencing color of the Color/Rank with 0 idx
-                #TODO we're only looking at the first one_away
-                #TODO this doesnt yet observe left-to-right principle
+                # prefer color if even, otherwise probably go for most play clues and then most touches.
+                # TODO i don't like referencing color of the Color/Rank with 0 idx
+                # TODO we're only looking at the first one_away
+                # TODO this doesnt yet observe left-to-right principle
                 color = one_aways[0][0]
                 color_touches = n.touched_cards(color=color)
                 rank = one_aways[0][1]
                 rank_touches = n.touched_cards(rank=rank)
-                clues = [(color_touches, color, True), (rank_touches, rank, False)]
+                clues = [(color_touches, color, True),
+                         (rank_touches, rank, False)]
                 if (big_touches and len(color_touches) < len(rank_touches)) or (not big_touches and len(color_touches) >= len(rank_touches)):
                     clues = clues[::-1]
                 for c in clues:
                     touches, e, is_color = c
                     if n.is_good_touch(touches, self.slots) and n.clues_left_to_right(touches):
-                        self.give_clue(n.id, color=e if is_color else None, rank=e if not is_color else None) #type: ignore
+                        self.give_clue(n.id, color=e if is_color else None, # type: ignore
+                                       rank=e if not is_color else None)  # type: ignore
                         return
-        
+
         for i, s in enumerate(self.slots[::-1]):
-            if len(s.possibilites) <= 5 and set(s.possibilites.keys()) & self.game.one_away:
-                self.play_card(len(self.cards)-i-1)
+            idx = len(self.cards)-i-1
+            for p in s.possibilites:
+                if p not in self.game.one_away:
+                    break
+            else:
+                self.play_card(idx)
                 return
-        
+
+            if len(s.possibilites) <= 5 and set(s.possibilites.keys()) & self.game.one_away and s.play:
+                self.play_card(idx)
+                return
+            
+
         chop = self.chop if self.chop != -1 else len(self.cards)-1
         if self.game.can_discard:
             self.discard(chop)
             return
         self.play_card(chop)
-
 
         # self.play_card(self.chop if self.chop != -1 else 0)
 
@@ -393,12 +445,17 @@ class Slot():
         self.save = False
         self.play = False
         self.clued = False
+        self.trash = False
 
     def __str__(self):
         return f'<card:{self.card}, possibly:{self.possibilites if len(self.possibilites) < 10 else "unk"}>'
 
     def __repr__(self):
         return self.__str__()
+
+    @property
+    def game(self) -> Game:
+        return self.player.game
 
     def decrement_possibility(self, card: 'Card'):
         if card.color_rank not in self.possibilites:
@@ -419,14 +476,36 @@ class Slot():
             self.probable = set((possibility,))
             self.player.self_exhausts.append(color_rank)
 
-    def receive_clue(self, idx: int, color: Color | None = None, rank: Rank | None = None):
+    def receive_clue(self, idx: int, color: Color | None = None, rank: Rank | None = None, clue_type: ClueType | None = None) -> ClueType:
         assert not (color is None and rank is None)
         clued = self._remove_possibilities(color, rank)
-        if clued and rank and idx == self.player.chop:
-            if len(self.possibilites) != 1:
-                self.save = True
+        if clued and rank:
+            one_away_nums = set([r for _, r in self.game.one_away])
+            # i.e. 1 can never be a save, 2 is not a save if all 1s are down
+            if rank == min(one_away_nums):
+                return ClueType.PLAY
+            # i.e. 1 is trash if all 1s are played.
+            elif rank < min(one_away_nums):
+                self.trash = True
+                return ClueType.TRASH
+            # i.e. 5 is save if any stack is at less than 4. But if i.e stacks are 4,4,4,1 and the 1 stack has the 5 in the discard pile. all 5s are now playable.
+            elif idx == self.player.chop and rank > min(one_away_nums):
+                not_currently_playable = [r < rank and (
+                    c, r) in self.possibilites for c, r in self.game.one_away]
+                if len(not_currently_playable):
+                    return ClueType.SAVE
+            else:  # It's a play clue if it's the first left-to-right. Will adjust later if a save comes up
+                return ClueType.PLAY if clue_type == ClueType.NONE else ClueType.SPLASH
+        elif clued and color:
+            playable_colors = set([c for c, _ in self.game.one_away])
+            if color not in playable_colors:  # trash if the color is not playable
+                return ClueType.TRASH
+            else: # It's a play clue if it's the first left-to-right. Cannot be a save.
+                return ClueType.PLAY if clue_type == ClueType.NONE else ClueType.SPLASH
+        return ClueType.NONE
 
     # Returns true if touched.
+
     def _remove_possibilities(self, color: Color | None, rank: Rank | None) -> bool:
         assert not (color is None and rank is None)
         if color:
@@ -464,7 +543,8 @@ class Board():
         self.stacks: Dict[Color, Stack] = Board._normal_board()
         self.remaining: Dict[Tuple[Color, Rank],
                              int] = collections.defaultdict(int)
-        self.eventually_playable = set([(c.color, c.rank) for c in Deck.normal_deck()._cards]) # type: ignore
+        self.eventually_playable = set(
+            [(c.color, c.rank) for c in Deck.normal_deck()._cards])  # type: ignore
 
     @staticmethod
     def _normal_board() -> Dict[Color, 'Stack']:
@@ -486,7 +566,7 @@ class Stack():
             self.rank = Rank(self.rank + 1)
             return True
         return False
-    
+
     # @property
     # def eventually_playable(self) -> set[Tuple[Color, Rank]]:
     #     s: set[Tuple[Color, Rank]] = set()
@@ -494,7 +574,7 @@ class Stack():
     #         if r > self.rank:
     #             s.add((self.color, r))
     #     return s
-    
+
     @property
     def one_away(self) -> set[Tuple[Color, Rank]]:
         s: set[Tuple[Color, Rank]] = set()
@@ -575,8 +655,8 @@ class Simulator():
                 print(f'{int(i/self.runs*100)}%')
             deck = None
             deck = Deck.normal_deck()
-            deck._cards[-5] = Card(Color.BLU, Rank.ONE) #type: ignore
-            deck._cards[-6] = Card(Color.BLU, Rank.ONE) #type: ignore
+            deck._cards[-5] = Card(Color.BLU, Rank.ONE)  # type: ignore
+            deck._cards[-6] = Card(Color.BLU, Rank.ONE)  # type: ignore
             g = Game(sim=self, deck=deck, debug=debug)
             g.next_player()
             del g
@@ -585,7 +665,7 @@ class Simulator():
         strikeout_rate = self.results[Result.STRIKE_OUT] / self.runs
         victory_rate = self.results[Result.VICTORY] / self.runs
         bottomout_rate = self.results[Result.BOTTOM_OUT] / self.runs
-        #TODO add statistics for no playables, which is technically a bottomout
+        # TODO add statistics for no playables, which is technically a bottomout
         print(f'simulations:{self.runs} average_score:{avg_score} max_score:{max_score} strikeout_rate:{strikeout_rate} bottomout_rate:{bottomout_rate} victory_rate:{victory_rate}')
 
     def report(self, score: int, result: Result):
@@ -593,7 +673,6 @@ class Simulator():
         self.results[result] += 1
 
 
-import sys
 if len(sys.argv) < 2:
     big_touches = True
     Simulator(10000)
@@ -604,4 +683,3 @@ else:
     Simulator(int(sys.argv[1]))
     big_touches = False
     Simulator(int(sys.argv[1]))
-

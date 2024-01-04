@@ -23,3 +23,9 @@ simulations:10000 average_score:8.6714 max_score:22 strikeout_rate:0.9696 bottom
 
 v0.5.1: prefer touching fewer cards. Best version yet! This still outperforms the the high touch version since players play left-to-right regardless of their most recent clue.
 simulations:10000 average_score:9.3841 max_score:21 strikeout_rate:0.9344 bottomout_rate:0.0656 victory_rate:0.0
+
+v0.6.0: Added notion of 'play' clues, now the player will try to identify the focus of the card and will only play the focus unless they are sure the card is playable, prefer touching more cards. I'm not super confident this is bug-free but it seems that playing more aggressively will result in a higher score.
+simulations:10000 average_score:5.4298 max_score:20 strikeout_rate:0.9894 bottomout_rate:0.0106 victory_rate:0.0
+
+v0.6.1: prefer touching fewer cards. score has gone down a little bit but strikeout rate is down significantly, obviously the players are much more patient but seem to not be playing cards when needed
+simulations:10000 average_score:9.0856 max_score:21 strikeout_rate:0.8475 bottomout_rate:0.1525 victory_rate:0.0
