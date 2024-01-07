@@ -5,9 +5,9 @@ from enum import IntEnum, Enum, auto, Flag
 from typing import List, Dict, Tuple
 from copy import deepcopy
 
-MAX_CLUE_TOKENS = 8
+MAX_CLUE_TOKENS = 1
 MAX_STRIKES = 3
-MAX_TURNS = 100
+MAX_TURNS = 2
 
 # class Color(Flag): #this would be cool when things get muddy but too complicated for now
 
@@ -68,7 +68,8 @@ class Game():
         self.debug = debug
         for p in self.players:
             if debug:
-                print(f'{p.id} {p.cards}')
+                # print(f'{p.id} {p.cards}')
+                pass
         for p in self.players:
             for c in p.cards:
                 self.report_draw(p.id, c)
@@ -92,6 +93,15 @@ class Game():
     def can_clue(self) -> bool:
         return self.clue_tokens != 0
 
+    def __str__(self):
+        players = '\n'.join([str(p) for p in self.players])
+        one_away = '[' + \
+            ', '.join([f'{c.name}-{r}' for (c, r) in self.one_away]) + ']'
+        return f'{players}\none_away: {one_away}'
+
+    def __repr__(self):
+        return self.__str__()
+
     def play_card(self, card: 'Card'):
         if self.debug:
             print(f'{self.player_turn} plays {card}', end=' ')
@@ -105,6 +115,23 @@ class Game():
             self.remaining_strikes -= 1
             if self.debug:
                 print('strike!')
+        if self.debug:
+            for p in self.players:
+                a = '['
+                for i, c in enumerate(p.cards):
+                    a += str(c)
+                    if p.slots[i].save:
+                        a += '!'
+                    elif p.slots[i].play:
+                        a += '*'
+                    elif p.slots[i].clued:
+                        a += '+'
+                    else:
+                        a += ' '
+                    a += ', '
+                a = a[:-2]
+                a += ']'
+                # print(a)
         if self.remaining_strikes == 0:  # GAME_OVER
             if self.debug:
                 print('GAME OVER, 3 STRIKES')
@@ -119,7 +146,24 @@ class Game():
 
     def discard_card(self, card: 'Card'):
         if self.debug:
-            print(f'{self.player_turn} discards {card} tokens:{self.clue_tokens}')
+            print(f'{self.player_turn} discards {
+                  card} tokens:{self.clue_tokens}')
+            for p in self.players:
+                a = '['
+                for i, c in enumerate(p.cards):
+                    a += str(c)
+                    if p.slots[i].play:
+                        a += '*'
+                    elif p.slots[i].save:
+                        a += '!'
+                    elif p.slots[i].clued:
+                        a += '+'
+                    else:
+                        a += ' '
+                    a += ', '
+                a = a[:-2]
+                a += ']'
+                # print(a)
         self.clue_tokens += 1
         self.process_card_removal(card)
         self.next_player()
@@ -152,7 +196,11 @@ class Game():
         self.next_player()
 
     def next_player(self):
+        print(self)
+        print()
         self.turns += 1
+        self.player_turn += 1
+        self.player_turn %= len(self.players)
         if self.turns == MAX_TURNS:
             self.game_over(Result.MAX_TURNS)
             return
@@ -163,11 +211,9 @@ class Game():
         #     return
         if self.player_turn == self.last_player:
             if self.debug:
-                print('GAME OVER, NO MORE CARDS2')
+                print('GAME OVER, NO MORE CARDS')
             self.game_over(Result.BOTTOM_OUT)
             return
-        self.player_turn += 1
-        self.player_turn %= len(self.players)
         assert 0 <= self.player_turn < len(self.players)
         self.players[self.player_turn].prompt()
 
@@ -193,7 +239,7 @@ class Player():
             self.draw_card(game_start=True)
 
     def __str__(self):
-        return f'id:{self.id}, cards:{self.cards} slots:{self.slots}'
+        return f'id:{self.id} {self.cards} slots:{self.slots}'
 
     def __repr__(self):
         return self.__str__()
@@ -246,6 +292,7 @@ class Player():
             assert s.card.color_rank != card.color_rank
             s.exhaust_possibility(card.color_rank)
 
+    # TODO next, I was working on this section. It was sort of unclear if plays and saves were being properly handled. It gets muddy since a 1s clue should result in multiple plays. A color clue should result in one play. And a 2 clue with a 1 one on the stack should only return 1 play.
     def receive_clue(self, from_: int, to: int, color: Color | None = None, rank: Rank | None = None):
         # missing: analyze finesse/bluff
         if from_ == self.id:  # tehcnicaly this will analyze self-bluff self-finesse
@@ -254,28 +301,33 @@ class Player():
             clue_type = ClueType.NONE
             clue_types: List[ClueType] = []
             for idx, s in enumerate(self.slots):
+                # print('going in', clue_type)
                 new_clue_type = s.receive_clue(
                     idx, color, rank, clue_type=clue_type)
+                # print('return', new_clue_type)
                 clue_types.append(new_clue_type)
                 clue_type |= new_clue_type
+                # print('coming out', new_clue_type)
+                if new_clue_type == ClueType.PLAY:
+                    # print('boink')
+                    pass
             if clue_type & ClueType.SAVE:
+                # print('gotta save')
                 for i in range(len(clue_types)):
                     ct = clue_types[i]
-                    if ct != ClueType.NONE and ct != ClueType.SAVE:
+                    if ct != ClueType.NONE and ct != ClueType.SAVE:  # this doesnt do anything
                         clue_types[i] = ClueType.SPLASH
                     elif ct == ClueType.SAVE:
                         self.slots[i].save = True
             elif clue_type & ClueType.PLAY:
+                # print('gotta play')
                 for idx, ct in enumerate(clue_types):
                     if ct == ClueType.PLAY:
                         self.slots[idx].play = True
                         self.has_play = True
             else:
-                #TODO if you get a neg clue that reveals the identity of a card in your hand you should have a play.
+                # TODO if you get a neg clue that reveals the identity of a card in your hand you should have a play.
                 pass
-
-                    
-
 
     def process_self_exhausts(self):
         while len(self.self_exhausts):
@@ -411,7 +463,7 @@ class Player():
                 for c in clues:
                     touches, e, is_color = c
                     if n.is_good_touch(touches, self.slots) and n.clues_left_to_right(touches):
-                        self.give_clue(n.id, color=e if is_color else None, # type: ignore
+                        self.give_clue(n.id, color=e if is_color else None,  # type: ignore
                                        rank=e if not is_color else None)  # type: ignore
                         return
 
@@ -427,7 +479,6 @@ class Player():
             if len(s.possibilites) <= 5 and set(s.possibilites.keys()) & self.game.one_away and s.play:
                 self.play_card(idx)
                 return
-            
 
         chop = self.chop if self.chop != -1 else len(self.cards)-1
         if self.game.can_discard:
@@ -457,7 +508,13 @@ class Slot():
         self.trash = False
 
     def __str__(self):
-        return f'<card:{self.card}, possibly:{self.possibilites if len(self.possibilites) < 10 else "unk"}>'
+        # possibly = 'unk' if len(self.possibilites) < 10 else ''
+        if len(self.possibilites) > 10:
+            possibly = 'unk'
+        else:
+            possibly = '[' + ', '.join([f'{c.name}-{r}:{n}' for (c, r),
+                                       n in self.possibilites.items()]) + ']'
+        return f'<{self.card} {possibly}>'
 
     def __repr__(self):
         return self.__str__()
@@ -487,9 +544,15 @@ class Slot():
 
     def receive_clue(self, idx: int, color: Color | None = None, rank: Rank | None = None, clue_type: ClueType | None = None) -> ClueType:
         assert not (color is None and rank is None)
+        old_chop = self.player.chop
         clued = self._remove_possibilities(color, rank)
         if clued and rank:
             one_away_nums = set([r for _, r in self.game.one_away])
+            # if rank == Rank.FIVE:
+            #     print('heyo', one_away_nums, min(one_away_nums), self.game.one_away,
+            #           [(c,r) for c, r in self.game.one_away if r < rank and (c, r) in self.possibilites])
+            #     print(idx, self.player.chop)
+
             # i.e. 1 can never be a save, 2 is not a save if all 1s are down
             if rank == min(one_away_nums):
                 return ClueType.PLAY
@@ -498,10 +561,11 @@ class Slot():
                 self.trash = True
                 return ClueType.TRASH
             # i.e. 5 is save if any stack is at less than 4. But if i.e stacks are 4,4,4,1 and the 1 stack has the 5 in the discard pile. all 5s are now playable.
-            elif idx == self.player.chop and rank > min(one_away_nums):
-                not_currently_playable = [r < rank and (
-                    c, r) in self.possibilites for c, r in self.game.one_away]
-                if len(not_currently_playable):
+            elif idx == old_chop and rank > min(one_away_nums):
+                currently_playable = [(c, r) for c, r in self.game.one_away if r == rank and (
+                    c, r) in self.possibilites]
+                # print('ncr', currently_playable)
+                if not len(currently_playable):
                     return ClueType.SAVE
             else:  # It's a play clue if it's the first left-to-right. Will adjust later if a save comes up
                 return ClueType.PLAY if clue_type == ClueType.NONE else ClueType.SPLASH
@@ -509,7 +573,8 @@ class Slot():
             playable_colors = set([c for c, _ in self.game.one_away])
             if color not in playable_colors:  # trash if the color is not playable
                 return ClueType.TRASH
-            else: # It's a play clue if it's the first left-to-right. Cannot be a save.
+            # It's a play clue if it's the first left-to-right. Cannot be a save.
+            else:
                 return ClueType.PLAY if clue_type == ClueType.NONE else ClueType.SPLASH
         return ClueType.NONE
 
@@ -675,7 +740,9 @@ class Simulator():
         victory_rate = self.results[Result.VICTORY] / self.runs
         bottomout_rate = self.results[Result.BOTTOM_OUT] / self.runs
         # TODO add statistics for no playables, which is technically a bottomout
-        print(f'simulations:{self.runs} average_score:{avg_score} max_score:{max_score} strikeout_rate:{strikeout_rate} bottomout_rate:{bottomout_rate} victory_rate:{victory_rate}')
+        print()
+        print(f'simulations:{self.runs} average_score:{avg_score} max_score:{max_score} strikeout_rate:{
+              strikeout_rate} bottomout_rate:{bottomout_rate} victory_rate:{victory_rate}')
 
     def report(self, score: int, result: Result):
         self.scores.append(score)
